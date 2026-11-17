@@ -1,13 +1,14 @@
 """Fair Split: enter expenses, see where the money goes, who owes whom, and settle up."""
 # Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
+# Explanatory comments added with Claude (Anthropic), 6 November 2026.
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 
 import db
-import fx
-import logic
+import fx      # exchange rates via API
+import logic   # balances() and settle()
 
 CATEGORIES = ["Groceries", "Household", "Rent & utilities", "Going out", "Travel", "Other"]
 SETTLEMENT = "Settlement"  # money paid back between flatmates: not real spending
@@ -15,39 +16,43 @@ SETTLEMENT = "Settlement"  # money paid back between flatmates: not real spendin
 st.title("💸 Fair Split")
 names = db.names()
 member_ids = list(names)
-expenses = db.table("SELECT * FROM expenses ORDER BY date DESC, id DESC")
+expenses = db.table("SELECT * FROM expenses ORDER BY date DESC, id DESC")  # newest first
 
 # ---------- who owes whom ----------
+# logic.balances() expects a list of (payer, amount in CHF, list of ids who share it)
 bal = logic.balances(member_ids, [(e.payer, e.amount_chf, logic.ids(e.shared_by)) for e in expenses.itertuples()])
-transfers = logic.settle(bal)
+transfers = logic.settle(bal)  # list of (from, to, amount)
+# settlements count for the balances, but not as spending in the charts and totals
 spending = expenses[expenses["category"] != SETTLEMENT]
 
 c1, c2 = st.columns(2)
-c1.metric("Spent together", f"CHF {spending['amount_chf'].sum():,.2f}")
+c1.metric("Spent together", f"CHF {spending['amount_chf'].sum():,.2f}")  # big number tile
 c2.metric("Open payments", len(transfers))
 
 # ---------- new expense ----------
-with st.expander("➕ New expense", expanded=expenses.empty):
+with st.expander("➕ New expense", expanded=expenses.empty):  # open by default only while there are no expenses
     with st.form("new-expense", clear_on_submit=True):
         title = st.text_input("What for?", placeholder="e.g. weekly shop")
         a, b = st.columns([2, 1])
+        # value=None: the field starts empty instead of showing 0.00
         amount = a.number_input("Amount", min_value=0.0, step=0.5, value=None, placeholder="0.00")
         currency = b.selectbox("Currency", fx.CURRENCIES)
         a, b = st.columns(2)
         category = a.selectbox("Category", CATEGORIES)
-        day = b.date_input("Date", value=date.today(), max_value=date.today(), format="DD.MM.YYYY")
+        day = b.date_input("Date", value=date.today(), max_value=date.today(), format="DD.MM.YYYY")  # no future dates
         payer = st.selectbox("Paid by", member_ids, format_func=names.get)
         shared_by = st.multiselect("Split between", member_ids, default=member_ids, format_func=names.get)
         if st.form_submit_button("Save", type="primary"):
-            if not amount or not shared_by:
+            if not amount or not shared_by:  # check the input before saving
                 st.error("Please enter an amount and choose at least one person.")
             else:
                 try:
                     # convert ONCE, at the rate of the expense's day, and store the CHF value
                     amount_chf = fx.to_chf(amount, currency, day.isoformat())
-                except Exception:
+                except Exception:  # no internet, API down, ...: show a message instead of crashing
                     st.error("Couldn't load the exchange rate right now. Try again later or enter it in CHF.")
                     st.stop()
+                # ",".join(map(str, [1, 2, 4])) -> "1,2,4" (lists are stored as text, see db.py)
                 db.run("INSERT INTO expenses (title, category, date, amount, currency, amount_chf, payer, shared_by) "
                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                        (title.strip() or "Expense", category, day.isoformat(), amount, currency, amount_chf,
@@ -62,14 +67,17 @@ with left:
     if spending.empty:
         st.caption("No expenses yet.")
     else:
+        # new column "month"; the chart stacks all expenses of a month, coloured by category
         per_month = spending.assign(month=spending["date"].str[:7])  # '2026-11-04' -> '2026-11'
         st.bar_chart(per_month, x="month", y="amount_chf", color="category", stack=True,
                      x_label="Month", y_label="CHF")
+        # total per category: groupby collects the rows of each category, sum() adds up their amounts
         totals = spending.groupby("category")["amount_chf"].sum().sort_values(ascending=False)
         st.dataframe(totals.rename("CHF").round(2))
 
 with right:
     st.subheader("Balances")
+    # one horizontal bar per person; people who moved out but still appear in old expenses get a placeholder name
     st.bar_chart(pd.DataFrame({"Person": [names.get(m, "Former flatmate") for m in bal],
                                "CHF": [round(v, 2) for v in bal.values()]}),
                  x="Person", y="CHF", horizontal=True)
@@ -78,7 +86,7 @@ with right:
     st.subheader("Who pays whom?")
     if not transfers:
         st.caption("All settled up. 🎉")
-    for i, (frm, to, value) in enumerate(transfers):
+    for i, (frm, to, value) in enumerate(transfers):  # enumerate gives a running number i for the button key
         a, b = st.columns([3, 1])
         a.write(f"**{names.get(frm, '?')}** → **{names.get(to, '?')}**: CHF {value:,.2f}")
         if b.button("Paid", key=f"paid-{i}"):
@@ -93,9 +101,11 @@ st.subheader("All expenses")
 for e in expenses.itertuples():
     a, b, c = st.columns([4, 2, 0.5])
     who = ", ".join(names.get(m, "?") for m in logic.ids(e.shared_by))
+    # two spaces + \n = line break in Markdown
     a.write(f"**{e.title}** · {e.category} · {e.date}  \n{names.get(e.payer, '?')} paid for {who}")
+    # show the original amount, and the CHF value only if it was entered in another currency
     original = f"{e.currency} {e.amount:,.2f}" + (f" (= CHF {e.amount_chf:,.2f})" if e.currency != "CHF" else "")
     b.write(original)
-    if c.button("✕", key=f"del-{e.id}", help="Delete"):
+    if c.button("✕", key=f"del-{e.id}", help="Delete"):  # deleting an expense changes all balances
         db.run("DELETE FROM expenses WHERE id = ?", (e.id,))
         st.rerun()
