@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS shopping (
     item TEXT,
     done INTEGER DEFAULT 0                    -- 0 = still to buy, 1 = in the trolley
 );
+CREATE TABLE IF NOT EXISTS plan (pos INTEGER PRIMARY KEY, recipe TEXT);  -- week plan: pos 0 = Monday, recipe = id
 """
 
 # create the tables once, when the app starts

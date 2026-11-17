@@ -32,7 +32,7 @@ def features(recipes: pd.DataFrame) -> pd.DataFrame:
     # marinating overnight) counts as 4, otherwise a few 100-hour recipes would dominate this column
     X["hours"] = recipes["minutes"].clip(upper=240) / 60
     X.index = recipes["id"]  # rows are found by recipe id, e.g. X.loc["bolo"]
-    return X
+    return X.drop(columns="tag_", errors="ignore")  # 'tag_' only means 'has no tags'
 
 
 def train(ratings: pd.DataFrame, X: pd.DataFrame):
@@ -66,8 +66,24 @@ def explain(model, X: pd.DataFrame, k: int = 3) -> tuple[list, list]:
     """The k properties that raise / lower this person's predicted rating the most."""
     # sort_values(): smallest (most negative) weight first, largest last
     weights = pd.Series(model.coef_, index=X.columns).sort_values()
-    nice = lambda col: col.replace("cuisine_", "").replace("diet_", "").replace("tag_", "").replace("hours", "long cooking")
     # weights[::-1] = reversed order, so the largest weights come first; only clear effects (> 0.1) count
-    likes = [nice(c) for c, w in weights[::-1].items() if w > 0.1][:k]
-    dislikes = [nice(c) for c, w in weights.items() if w < -0.1][:k]
+    likes = [friendly(c) for c, w in weights[::-1].items() if w > 0.1][:k]
+    dislikes = [friendly(c) for c, w in weights.items() if w < -0.1][:k]
     return likes, dislikes
+
+
+DIETS = {"meat": "dishes with meat", "pesce": "fish dishes", "veg": "vegetarian dishes", "vegan": "vegan dishes"}
+TAGS = {"quick": "quick dishes", "cheap": "cheap dishes", "comfort": "comfort food", "oven": "oven dishes",
+        "sharing": "dishes to share", "spicy": "spicy food", "classic": "classic dishes", "one pot": "one-pot dishes",
+        "wok": "wok dishes", "mild": "mild dishes"}
+
+
+def friendly(col: str) -> str:
+    """Column name -> words a flatmate understands: 'cuisine_indian' -> 'Indian food', 'tag_quick' -> 'quick dishes'."""
+    if col.startswith("cuisine_"):
+        return "dishes from other cuisines" if col == "cuisine_other" else col[8:].title() + " food"
+    if col.startswith("diet_"):
+        return DIETS[col[5:]]
+    if col == "hours":
+        return "dishes that take longer"
+    return TAGS.get(col[4:], col[4:])  # other tags are already words, e.g. 'pasta', 'curry'

@@ -96,10 +96,79 @@ def expected_rating(person) -> pd.Series:
     return guess
 
 
-# one column per person at the table, then the average per recipe (row) = expected rating of the group
-table_scores = pd.concat([expected_rating(p) for p in at_table], axis=1).mean(axis=1)
+# one column per person at the table, then one score per recipe (row) for the whole group
+fair = st.toggle("Everyone should like it", help="Ranks by the person who would like a dish least, "
+                 "so nobody at the table gets something they don't like.")
+table = pd.concat([expected_rating(p) for p in at_table], axis=1)
+table_scores = table.min(axis=1) if fair else table.mean(axis=1)  # lowest score or average
 fits["score"] = fits["id"].map(table_scores)  # look up the group score of every suitable recipe
 fits = fits.sort_values("score", ascending=False)  # best first
+
+# ---------- week plan: 5 good dinners, each from a different cuisine, saved for the whole flat ----------
+def show_recipe(r):
+    """Ingredients and method side by side (in the CSV, ingredients are separated by "; " and steps by " | ")."""
+    a, b = st.columns([1, 1.4])
+    a.markdown("**Ingredients (4 servings)**\n" + "\n".join(f"- {i}" for i in r["ingredients"].split("; ")))
+    b.markdown("**Method**\n" + "\n".join(f"{n}. {s}" for n, s in enumerate(r["steps"].split(" | "), 1)))
+
+
+def rate_together(r, key):
+    """One slider per person at the table. The ratings are the training data for the ML model."""
+    with st.form(key):  # every form needs its own key, e.g. 'rate-bolo' or 'plan-bolo'
+        st.markdown("**🍳 Cooked it? Everyone rates at once**")
+        scores = {p["id"]: col.select_slider(p["name"], ["skip"] + list(range(1, 11)), value="skip")
+                  for col, p in zip(st.columns(len(at_table)), at_table)}  # one slider per person
+        if st.form_submit_button("Save ratings"):
+            for who, score in scores.items():
+                if score != "skip":  # INSERT OR REPLACE: rating a dish again overwrites the old rating
+                    db.run("INSERT OR REPLACE INTO ratings (member, recipe, score, date) VALUES (?, ?, ?, ?)",
+                           (who, r["id"], score, date.today().isoformat()))
+            st.rerun()  # rerun so the models are retrained with the new ratings
+
+
+def swap(pos, key):
+    """Put the dish picked in the 'Change dish' drop-down on this day of the plan."""
+    db.run("UPDATE plan SET recipe = ? WHERE pos = ?", (st.session_state[key], pos))
+    st.session_state[key] = None  # empty the drop-down again
+
+
+with st.expander("🗓️ **Our week**", expanded=True):  # own box that can be folded away
+    if st.button("Plan our week", help="5 dinners that suit everyone, with some variety"):
+        picked = []
+        for r in fits.to_dict("records"):  # best first
+            if r["cuisine"] not in [p["cuisine"] for p in picked] or r["cuisine"] == "other":
+                picked.append(r)
+            if len(picked) == 5:
+                break
+        db.run("DELETE FROM plan")  # a new plan replaces the old one
+        for pos, r in enumerate(picked):
+            db.run("INSERT INTO plan (pos, recipe) VALUES (?, ?)", (pos, r["id"]))
+    plan = db.table("SELECT pos, recipe AS id FROM plan ORDER BY pos").merge(recipes, on="id")  # stays until the next plan
+    if plan.empty:
+        st.caption("No plan yet: the app picks 5 dinners that suit everyone at the table.")
+    else:
+        ours = ratings[ratings["member"].isin([p["id"] for p in at_table])]  # ratings of the people at the table
+        rated = ours.groupby("recipe")["score"].mean()
+        favs = {}  # one favourite per person at the table: their best-rated dish that suits everyone
+        for p in at_table:
+            mine = ours[(ours["member"] == p["id"]) & ours["recipe"].isin(fits["id"])]
+            if not mine.empty:
+                best = mine.loc[mine["score"].idxmax()]
+                favs.setdefault(best["recipe"], []).append(f"{p['name']} ({best['score']})")
+        options = list(favs) + [i for i in fits["id"] if i not in rated.index]  # favourites, then new dishes
+        dish_names = {i: f"{n} · expected ⭐ {sc:.1f}" for i, n, sc in zip(fits["id"], fits["name"], fits["score"])}
+        dish_names.update({i: f"❤️ {dish_names[i].split(' · ')[0]} · favourite of {', '.join(who)}" for i, who in favs.items()})
+        for r in plan.to_dict("records"):
+            with st.expander(f"**{['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][r['pos']]}:** {r['name']} · {r['minutes']} min · {r['cuisine']}"):
+                st.selectbox("Change dish", options, index=None, placeholder="Type to search another dish …",
+                             format_func=dish_names.get, key=f"swap-{r['pos']}", on_change=swap, args=(r["pos"], f"swap-{r['pos']}"))
+                show_recipe(r)
+                rate_together(r, f"plan-{r['pos']}")
+        if st.button("Add all ingredients to the shopping list"):
+            for r in plan.to_dict("records"):
+                for i in r["ingredients"].split("; "):
+                    db.run("INSERT INTO shopping (item) VALUES (?)", (f"{i} ({r['name']})",))
+            st.toast("Added to the shopping list")
 
 learning = [p["name"] for p in at_table if models.get(p["id"]) is not None]
 st.subheader(f"Suits everyone ({len(fits)})")
@@ -107,18 +176,22 @@ st.caption("Sorted by the expected rating of everyone at the table. "
            + (f"Learned from the ratings of {', '.join(learning)}." if learning
               else f"Rate at least {ml.MIN_RATINGS} dishes each and the app starts learning what you like."))
 
+# ---------- something new: the best dish from the cuisine you have rated least ----------
+rated = recipes[recipes["id"].isin(ratings[ratings["member"].isin([p["id"] for p in at_table])]["recipe"])]
+fits["seen"] = fits["cuisine"].map(rated["cuisine"].value_counts()).fillna(0)  # ratings per cuisine
+new = fits[fits["cuisine"] != "other"].sort_values(["seen", "score"], ascending=[True, False]).head(1)
+cards = pd.concat([new, fits.drop(new.index)]).head(SHOW + 1)  # 'something new' first, then the best ones
+
 # ---------- the suggestions: one expandable box per recipe ----------
-for r in fits.head(SHOW).to_dict("records"):
-    with st.expander(f"**{r['name']}** · ⭐ {r['score']:.1f} · {r['minutes']} min · {r['diet']} · {r['cuisine']}"):
+for r in cards.to_dict("records"):
+    label = "🎲 **Something new:** " if r["id"] in new["id"].values else ""
+    with st.expander(f"{label}**{r['name']}** · ⭐ {r['score']:.1f} · {r['minutes']} min · {r['diet']} · {r['cuisine']}"):
         if isinstance(r["allergens"], str):  # an empty CSV cell is read as NaN (a float), not as text
             st.caption("Contains: " + r["allergens"].replace(",", ", "))
         if r["id"].startswith("ar-"):  # recipes from the Allrecipes dataset have ids like 'ar-123'
             st.caption("From the Allrecipes dataset: diet, allergens and cuisine were estimated from the ingredients. "
                        "Check the ingredients if someone has an allergy.")
-        a, b = st.columns([1, 1.4])
-        # in the CSV, ingredients are separated by "; " and steps by " | "
-        a.markdown("**Ingredients (4 servings)**\n" + "\n".join(f"- {i}" for i in r["ingredients"].split("; ")))
-        b.markdown("**Method**\n" + "\n".join(f"{n}. {s}" for n, s in enumerate(r["steps"].split(" | "), 1)))
+        show_recipe(r)
 
         # every widget needs a unique key, otherwise Streamlit can't tell the buttons of different recipes apart
         if st.button("Add ingredients to shopping list", key=f"shop-{r['id']}"):
@@ -126,16 +199,7 @@ for r in fits.head(SHOW).to_dict("records"):
                 db.run("INSERT INTO shopping (item) VALUES (?)", (f"{i} ({r['name']})",))
             st.toast("Added to the shopping list")  # small pop-up message
 
-        # the rating is the training data for the ML model: each new rating changes the next suggestions
-        with st.form(f"rate-{r['id']}"):
-            a, b, c = st.columns([1.2, 2, 1])
-            who = a.selectbox("Who rates?", [p["id"] for p in at_table], format_func=names.get)
-            score = b.slider("How was it?", 1, 10, 7)  # from 1 to 10, preset to 7
-            if c.form_submit_button("Save rating"):
-                # INSERT OR REPLACE: rating the same dish again overwrites the old rating
-                db.run("INSERT OR REPLACE INTO ratings (member, recipe, score, date) VALUES (?, ?, ?, ?)",
-                       (who, r["id"], score, date.today().isoformat()))
-                st.rerun()  # rerun so the models are retrained with the new rating
+        rate_together(r, f"rate-{r['id']}")
 
 # recipes that passed the filters but broke a hard rule, with the reasons (~ means "not")
 nofit = shown[~shown["id"].isin(fits["id"])]
@@ -144,31 +208,15 @@ if not nofit.empty:
         st.dataframe(pd.DataFrame({"Recipe": nofit["name"], "Why not": nofit["id"].map(lambda rid: "; ".join(reasons[rid]))}),
                      hide_index=True)
 
-# ---------- what the model learned (good to show in the video) ----------
-st.subheader("What the app has learned")
+# ---------- what the app knows about each person, in plain words ----------
+st.subheader("What the app knows about your taste")
 for m in members.to_dict("records"):
     n = int((ratings["member"] == m["id"]).sum())  # True counts as 1, so sum() = number of ratings
     model = models.get(m["id"])
     if model is None:
-        st.write(f"**{m['name']}**: {n} rating(s), needs {ml.MIN_RATINGS} to start learning.")
+        st.write(f"⚪ **{m['name']}**: rate {ml.MIN_RATINGS - n} more dish(es) and the app starts learning.")
     else:
         likes, dislikes = ml.explain(model, X)
-        st.write(f"**{m['name']}** ({n} ratings): likes {', '.join(likes) or '–'} · less keen on {', '.join(dislikes) or '–'}")
-
-# ---------- taste-profile chart: the learned weights of one person's model ----------
-trained = [m["id"] for m in members.to_dict("records") if models.get(m["id"]) is not None]
-if trained:
-    person = st.selectbox("Taste profile of", trained, format_func=names.get)
-    w = ml.weights(models[person], X)
-    # keep only the 12 properties with the biggest effect (positive or negative), ignore near-zero weights
-    w = w[w.abs() > 0.05]
-    w = w.reindex(w.abs().sort_values(ascending=False).index[:12])
-    if w.empty:
-        st.caption("No clear preferences yet: the ratings are too similar to each other.")
-    else:
-        data = pd.DataFrame({"Property": w.index, "Effect": w.values.round(2)})
-        # horizontal bars, one per property; sort="-Effect" = biggest positive effect at the top
-        st.bar_chart(data, x="Property", y="Effect", horizontal=True, sort="-Effect",
-                     x_label="", y_label="Effect on predicted rating (points)")
-        st.caption("Each bar is one weight of the ridge regression: how many points a property adds to (bar to the "
-                   "right) or takes away from (bar to the left) the predicted rating. Cooking time counts per hour.")
+        status = "🟢 knows your taste" if n >= 10 else "🟡 still learning"
+        st.write(f"**{m['name']}** ({status}, {n} ratings): likes {', '.join(likes) or '–'} · "
+                 f"less keen on {', '.join(dislikes) or '–'}")
