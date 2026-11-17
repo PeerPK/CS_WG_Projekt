@@ -3,14 +3,26 @@
 Lists (who shares an expense, allergies, ...) are stored as comma-separated text, e.g. "1,3".
 """
 # Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
+# Explanatory comments added with Claude (Anthropic), 6 November 2026.
+# Simplified to plain connect / commit / close with Claude (Anthropic), 17 November 2026.
+#
+# SQLite is a complete SQL database stored in a single file. It is part of Python's standard library
+# (module sqlite3), so nothing has to be installed and there is no database server to run.
+# All other files only use the helper functions run(), table(), members() and names() from here.
+#
+# Every function below works the same way: open a connection to the file, do one thing, close it again.
 import os
 import sqlite3
-from contextlib import closing
 
 import pandas as pd
 
+# Where the database file lives: next to this file, unless the environment variable WG_DB says otherwise.
+# os.path.abspath(__file__) = full path of db.py, dirname = its folder.
 DB_PATH = os.environ.get("WG_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "wg.sqlite"))
 
+# The structure of all tables (SQL). "IF NOT EXISTS" makes it safe to run this on every start:
+# existing tables and their data are left alone. Text after -- is an SQL comment.
+# INTEGER PRIMARY KEY AUTOINCREMENT = sqlite gives every new row a unique number (1, 2, 3, ...) by itself.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS members (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,27 +65,39 @@ CREATE TABLE IF NOT EXISTS shopping (
 """
 
 # create the tables once, when the app starts
-with closing(sqlite3.connect(DB_PATH)) as _con:
-    _con.executescript(SCHEMA)
+# (this code runs when another file does "import db"; Python imports a module only once per process)
+_con = sqlite3.connect(DB_PATH)
+_con.executescript(SCHEMA)  # executescript can run several SQL statements at once
+_con.close()
 
 
 def run(sql: str, params=()) -> None:
     """Run a statement that changes data (INSERT, UPDATE, DELETE)."""
-    with closing(sqlite3.connect(DB_PATH)) as con, con:  # second 'con' commits automatically
-        con.execute(sql, params)
+    # Usage: run("DELETE FROM shopping WHERE id = ?", (5,)) -> each ? is filled with a value from params.
+    # Never build SQL by gluing user input into the string: the ? placeholders prevent SQL injection.
+    con = sqlite3.connect(DB_PATH)
+    con.execute(sql, params)
+    con.commit()  # without commit, the change would be thrown away when the connection closes
+    con.close()
 
 
 def table(sql: str, params=()) -> pd.DataFrame:
     """Run a SELECT and get the result as a pandas DataFrame."""
-    with closing(sqlite3.connect(DB_PATH)) as con:
-        return pd.read_sql_query(sql, con, params=params)
+    # A DataFrame is a table in Python: columns can be accessed like df["name"], rows filtered like
+    # df[df["category"] == "Groceries"]. The views use it for charts, sums and filters.
+    con = sqlite3.connect(DB_PATH)
+    result = pd.read_sql_query(sql, con, params=params)
+    con.close()
+    return result
 
 
 def members() -> pd.DataFrame:
+    """All flatmates, in the order they were added (= order of the cleaning rota)."""
     return table("SELECT * FROM members ORDER BY id")
 
 
 def names() -> dict:
     """{member id: name}, used everywhere to show names instead of ids."""
     m = members()
+    # zip pairs the two columns element by element: (1, "Oskar"), (2, "Peer"), ... -> dict {1: "Oskar", ...}
     return dict(zip(m["id"], m["name"]))

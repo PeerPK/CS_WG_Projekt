@@ -1,7 +1,8 @@
 """Cooking: recipes that suit everyone at home, ranked by what the app has learned from your ratings."""
 # Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
 # Explanatory comments and the taste-profile chart (end of file) added with Claude (Anthropic), 6 November 2026.
-# Allrecipes data, load_features() and the course filter added with Claude (Anthropic), 17 November 2026.
+# Allrecipes data, load_features() and the course filter added with Claude (Anthropic), 17 November 2026;
+# the taste-profile chart switched from Altair to st.bar_chart the same day.
 #
 # Order of work on this page:
 # 1. filters (search, cuisine, time) -> 2. hard rules (diet, allergies, dislikes) remove recipes
@@ -9,7 +10,6 @@
 import os
 from datetime import date
 
-import altair as alt   # chart library that Streamlit uses internally; used directly for the taste-profile chart
 import pandas as pd
 import streamlit as st
 
@@ -167,16 +167,8 @@ if trained:
         st.caption("No clear preferences yet: the ratings are too similar to each other.")
     else:
         data = pd.DataFrame({"Property": w.index, "Effect": w.values.round(2)})
-        data["Direction"] = ["raises rating" if v > 0 else "lowers rating" for v in data["Effect"]]
-        # Altair builds a chart from a DataFrame: x = number, y = category, colour = direction.
-        # sort="-x" puts the strongest positive effect at the top and the most negative at the bottom.
-        chart = alt.Chart(data).mark_bar().encode(
-            x=alt.X("Effect:Q", title="Effect on predicted rating (points)"),
-            y=alt.Y("Property:N", sort="-x", title=None),
-            color=alt.Color("Direction:N", legend=None,
-                            scale=alt.Scale(domain=["raises rating", "lowers rating"], range=["#2C8452", "#BF3F2B"])),
-            tooltip=["Property", alt.Tooltip("Effect:Q", format="+.2f")],
-        )
-        st.altair_chart(chart)
-        st.caption("Each bar is one weight of the ridge regression: how many points a property adds to (green) "
-                   "or takes away from (red) the predicted rating. Cooking time counts per hour.")
+        # horizontal bars, one per property; sort="-Effect" = biggest positive effect at the top
+        st.bar_chart(data, x="Property", y="Effect", horizontal=True, sort="-Effect",
+                     x_label="", y_label="Effect on predicted rating (points)")
+        st.caption("Each bar is one weight of the ridge regression: how many points a property adds to (bar to the "
+                   "right) or takes away from (bar to the left) the predicted rating. Cooking time counts per hour.")
