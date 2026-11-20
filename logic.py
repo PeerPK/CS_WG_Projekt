@@ -1,5 +1,5 @@
 """The rules of the app as plain functions: no Streamlit, no database, so they are easy to test."""
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
+
 import re
 
 
