@@ -4,10 +4,10 @@ Lists (who shares an expense, allergies, ...) are stored as comma-separated text
 """
 
 
-import os
-import sqlite3
+import os                      # Werkzeug Dateien und Ordner 
+import sqlite3                 # Datenbank
 
-import pandas as pd
+import pandas as pd            # Tabellenwerkzueg, pd als Abkürzung
 
 # Where the database file lives: next to this file, unless the environment variable WG_DB says otherwise.
 # os.path.abspath(__file__) = full path of db.py, dirname = its folder.
@@ -16,6 +16,8 @@ DB_PATH = os.environ.get("WG_DB", os.path.join(os.path.dirname(os.path.abspath(_
 # The structure of all tables (SQL). "IF NOT EXISTS" makes it safe to run this on every start:
 # existing tables and their data are left alone. Text after -- is an SQL comment.
 # INTEGER PRIMARY KEY AUTOINCREMENT = sqlite gives every new row a unique number (1, 2, 3, ...) by itself.
+# """ Text merhere Zeilen 
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS members (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,10 +60,10 @@ CREATE TABLE IF NOT EXISTS shopping (
 CREATE TABLE IF NOT EXISTS plan (pos INTEGER PRIMARY KEY, recipe TEXT);  -- week plan: pos 0 = Monday, recipe = id
 """
 
-# create the tables once, when the app starts
+# Tabelle wird einmal geabut, wenn die APp startet
 # (this code runs when another file does "import db"; Python imports a module only once per process)
-_con = sqlite3.connect(DB_PATH)
-_con.executescript(SCHEMA)  # executescript can run several SQL statements at once
+_con = sqlite3.connect(DB_PATH) #connection -> öffnet wg.sqlite, gibt es sie nicht wird soe angelegt
+_con.executescript(SCHEMA)  # executescript führt mehreree SQL statements gleichzeitgig aus 
 _con.close()
 
 
@@ -69,10 +71,10 @@ def run(sql: str, params=()) -> None:
     """Run a statement that changes data (INSERT, UPDATE, DELETE)."""
     # Usage: run("DELETE FROM shopping WHERE id = ?", (5,)) -> each ? is filled with a value from params.
     # Never build SQL by gluing user input into the string: the ? placeholders prevent SQL injection.
-    con = sqlite3.connect(DB_PATH)
-    con.execute(sql, params)
-    con.commit()  # without commit, the change would be thrown away when the connection closes
-    con.close()
+    con = sqlite3.connect(DB_PATH)     # verbinden mit DB 
+    con.execute(sql, params)           # Befehl ausführen
+    con.commit()                       # Befehl endgültig Speichern
+    con.close()                        # Verbindung trennen
 
 
 def table(sql: str, params=()) -> pd.DataFrame:
@@ -80,7 +82,7 @@ def table(sql: str, params=()) -> pd.DataFrame:
     # A DataFrame is a table in Python: columns can be accessed like df["name"], rows filtered like
     # df[df["category"] == "Groceries"]. The views use it for charts, sums and filters.
     con = sqlite3.connect(DB_PATH)
-    result = pd.read_sql_query(sql, con, params=params)
+    result = pd.read_sql_query(sql, con, params=params)     #output als komplette Tabelle
     con.close()
     return result
 
