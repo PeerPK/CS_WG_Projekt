@@ -6,9 +6,7 @@
    instead of jumping to extreme conclusions (less overfitting).
 3. The model then predicts a rating for every recipe the person hasn't rated yet.
 """
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
-# Explanatory comments and the function weights() (for the taste-profile chart) added with Claude (Anthropic),
-# 6 November 2026. The 4-hour cap on cooking time in features() added with Claude (Anthropic), 17 November 2026.
+
 #
 # The idea in one example: if Peer gives high ratings to Indian dishes and low ones to long oven dishes,
 # the model learns a positive weight for "cuisine_indian" and a negative one for "hours".
