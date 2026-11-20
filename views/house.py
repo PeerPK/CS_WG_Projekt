@@ -1,6 +1,5 @@
 """House: cleaning rota that passes chores on automatically, and a shared shopping list."""
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
-# Explanatory comments added with Claude (Anthropic), 6 November 2026.
+
 from datetime import date, timedelta  # timedelta = a duration, e.g. timedelta(days=7)
 
 import streamlit as st
