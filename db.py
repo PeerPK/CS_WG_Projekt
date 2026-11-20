@@ -2,15 +2,8 @@
 
 Lists (who shares an expense, allergies, ...) are stored as comma-separated text, e.g. "1,3".
 """
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
-# Explanatory comments added with Claude (Anthropic), 6 November 2026.
-# Simplified to plain connect / commit / close with Claude (Anthropic), 17 November 2026.
-#
-# SQLite is a complete SQL database stored in a single file. It is part of Python's standard library
-# (module sqlite3), so nothing has to be installed and there is no database server to run.
-# All other files only use the helper functions run(), table(), members() and names() from here.
-#
-# Every function below works the same way: open a connection to the file, do one thing, close it again.
+
+
 import os
 import sqlite3
 
