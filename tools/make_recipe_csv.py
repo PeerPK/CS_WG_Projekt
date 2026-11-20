@@ -3,7 +3,7 @@ into data/allrecipes.csv.gz in the same columns as data/recipes.csv. The app its
 
 Run once:  python tools/make_recipe_csv.py path/to/recipes.db
 """
-# Generated with Claude (Anthropic), 17 November 2026. Cite it if you reuse this code.
+
 import json
 import os
 import re
