@@ -1,5 +1,5 @@
 """Tests for logic.py. Run with:  python -m pytest"""
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
+
 import os
 import sys
 
