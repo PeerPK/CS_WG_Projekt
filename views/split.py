@@ -1,5 +1,5 @@
 """Fair Split: enter expenses, see where the money goes, who owes whom, and settle up."""
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
+
 from datetime import date
 
 import pandas as pd
