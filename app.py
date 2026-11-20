@@ -2,7 +2,7 @@
 
 Sets up the flat on first start, shows "Who's home today?" in the sidebar and switches between the pages in views/.
 """
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
+
 import streamlit as st
 
 import db
