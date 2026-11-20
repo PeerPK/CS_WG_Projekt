@@ -1,6 +1,5 @@
 """Flatmates: food preferences of each person, adding and removing flatmates."""
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
-# Explanatory comments added with Claude (Anthropic), 6 November 2026.
+
 import streamlit as st
 
 import db
