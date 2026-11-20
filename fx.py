@@ -1,5 +1,5 @@
 """Exchange rates from the European Central Bank, via the free Frankfurter API (JSON, no key needed)."""
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
+
 import requests
 import streamlit as st
 
