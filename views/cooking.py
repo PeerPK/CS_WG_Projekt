@@ -1,8 +1,5 @@
 """Cooking: recipes that suit everyone at home, ranked by what the app has learned from your ratings."""
-# Draft generated with Claude (Anthropic), November 2026. Cite it if you reuse this code.
-# Explanatory comments and the taste-profile chart (end of file) added with Claude (Anthropic), 6 November 2026.
-# Allrecipes data, load_features() and the course filter added with Claude (Anthropic), 17 November 2026;
-# the taste-profile chart switched from Altair to st.bar_chart the same day.
+
 #
 # Order of work on this page:
 # 1. filters (search, cuisine, time) -> 2. hard rules (diet, allergies, dislikes) remove recipes
